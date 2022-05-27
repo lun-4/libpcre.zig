@@ -4,4 +4,4 @@ main: src/main.zig
 license: MIT
 description: Zig bindings to libpcre
 dependencies:
-  - src: git https://github.com/luna/pcre-8.45-noposix
+  - src: git https://github.com/lun-4/pcre-8.45-noposix
