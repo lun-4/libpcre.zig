@@ -2,30 +2,53 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub fn build(b: *std.build.Builder) !void {
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    const lib = b.addStaticLibrary("libpcre.zig", "src/main.zig");
-    lib.setBuildMode(mode);
-    lib.setTarget(target);
-    try linkPcre(lib);
-    lib.install();
+    _ = b.addModule("libpcre", .{
+        .source_file = .{ .path = "src/main.zig" },
+    });
 
-    var main_tests = b.addTest("src/main.zig");
-    try linkPcre(main_tests);
-    main_tests.setBuildMode(mode);
-    main_tests.setTarget(target);
+    const lib = b.addStaticLibrary(.{
+        .name = "libpcre.zig",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    try linkPcre(b, lib);
+    b.installArtifact(lib);
+
+    const main_tests = b.addTest(.{
+        .name = "main_tests",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .optimize = optimize,
+        .target = target,
+    });
+    try linkPcre(b, main_tests);
+
+    const main_tests_run = b.addRunArtifact(main_tests);
+    main_tests_run.step.dependOn(&main_tests.step);
 
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
+    test_step.dependOn(&main_tests_run.step);
 }
 
-pub fn linkPcre(exe: *std.build.LibExeObjStep) !void {
+pub fn linkPcre(b: *std.build.Builder, exe: *std.build.LibExeObjStep) !void {
     exe.linkLibC();
     if (builtin.os.tag == .windows) {
         try exe.addVcpkgPaths(.static);
-        exe.linkSystemLibrary("pcre");
+    }
+    if (builtin.os.tag == .macos) {
+        // If `pkg-config libpcre` doesn't error, linkSystemLibrary("libpcre") will succeed.
+        // If it errors, try "pcre", as either it will hit a .pc by that name, or the fallthru
+        // `-lpcre` and standard includes will work.  (Or it's not installed.)
+        var code: u8 = undefined;
+        if (b.execAllowFail(&[_][]const u8{ "pkg-config", "libpcre" }, &code, .Ignore)) |_| {
+            exe.linkSystemLibrary("libpcre");
+        } else |_| {
+            exe.linkSystemLibrary("pcre");
+        }
     } else {
-        exe.linkSystemLibrary("libpcre");
+        exe.linkSystemLibrary("pcre");
     }
 }
